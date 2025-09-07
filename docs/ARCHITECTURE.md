@@ -1,0 +1,1 @@
+﻿# System Architecture\n\nFrontend (React/MUI)  FastAPI (Python)  ML Models (sklearn/XGBoost/LightGBM/CatBoost)\n\n- Frontend: forms, charts, batch upload, Axios to API.\n- API: /health, /predict, /predict/batch, /features, /models.\n- ML: training via scripts/train_models.py, artifacts in models/.\n- Docker: multi-stage build; docker-compose for services.\n

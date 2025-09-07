@@ -1,0 +1,1 @@
+﻿# Setup Guide\n\n1) pip install -r requirements.txt\n2) Put train.csv/test.csv in data/\n3) python scripts/train_models.py\n4) Backend: cd backend && python main.py\n5) Frontend: cd frontend && npm install && npm start\n6) Docker: docker-compose up --build\n
