@@ -151,26 +151,26 @@ const BatchPrediction = ({ onShowSnackbar }) => {
             return obj;
           });
 
-        // Map to customer inputs alongside original IDs (if present)
-        const customersWithIds = parsedRows.map((row) => ({
-          sourceId: pick(row, ['id', 'ID', 'Id', 'CustomerId', 'CustomerID'], ''),
-          payload: toCustomer(row),
-        })).filter(({ payload }) => !Number.isNaN(payload.CreditScore) && !Number.isNaN(payload.Age));
+        // Preserve original IDs to display in results
+        const originalIds = parsedRows.map(r => pick(r, ['id', 'CustomerId', 'customer_id'])).map(v => v === '' ? null : v);
+        // Map to customer inputs, ignoring rows missing critical fields
+        const customersData = parsedRows.map(toCustomer).filter(c => !Number.isNaN(c.CreditScore) && !Number.isNaN(c.Age));
 
         // Do not render all rows in the UI; process in chunks directly
         let allPreds = [];
-        for (let i = 0; i < customersWithIds.length; i += CHUNK_SIZE) {
-          const chunk = customersWithIds.slice(i, i + CHUNK_SIZE);
+        for (let i = 0; i < customersData.length; i += CHUNK_SIZE) {
+          const chunk = customersData.slice(i, i + CHUNK_SIZE);
+          const idsChunk = originalIds.slice(i, i + CHUNK_SIZE);
           try {
-            const result = await apiService.predictBatch(chunk.map(c => c.payload));
+            const result = await apiService.predictBatch(chunk);
             const preds = (result.predictions || []).map((p, idx) => ({
               ...p,
-              customer_id: chunk[idx]?.sourceId || p.customer_id,
+              customer_id: idsChunk[idx] ?? p.customer_id ?? (i + idx + 1),
             }));
             allPreds = allPreds.concat(preds);
-            onShowSnackbar(`Processed ${Math.min(i + CHUNK_SIZE, customersWithIds.length)} / ${customersWithIds.length}`, 'info');
+            onShowSnackbar(`Processed ${Math.min(i + CHUNK_SIZE, customersData.length)} / ${customersData.length}`, 'info');
           } catch (err) {
-            onShowSnackbar(`Batch error at rows ${i+1}-${Math.min(i+CHUNK_SIZE, customersWithIds.length)}: ${err.message}`, 'error');
+            onShowSnackbar(`Batch error at rows ${i+1}-${Math.min(i+CHUNK_SIZE, customersData.length)}: ${err.message}`, 'error');
             break;
           }
         }
@@ -197,7 +197,7 @@ const BatchPrediction = ({ onShowSnackbar }) => {
     const csvContent = [
       'Customer ID,Churn Probability,Prediction,Confidence',
       ...predictions.map((pred, index) => 
-        `${index + 1},${pred.churn_probability.toFixed(4)},${pred.prediction},${pred.confidence}`
+        `${pred.customer_id ?? (index + 1)},${pred.churn_probability.toFixed(4)},${pred.prediction},${pred.confidence}`
       )
     ].join('\n');
 
@@ -469,7 +469,7 @@ const BatchPrediction = ({ onShowSnackbar }) => {
                     {predictions.map((prediction, index) => (
                       <TableRow key={index}>
                         <TableCell component="th" scope="row">
-                          {index + 1}
+                          {prediction.customer_id ?? (index + 1)}
                         </TableCell>
                         <TableCell align="center">
                           <Chip
