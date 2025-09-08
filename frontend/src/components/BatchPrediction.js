@@ -151,19 +151,26 @@ const BatchPrediction = ({ onShowSnackbar }) => {
             return obj;
           });
 
-        // Map to customer inputs, ignoring rows missing critical fields
-        const customersData = parsedRows.map(toCustomer).filter(c => !Number.isNaN(c.CreditScore) && !Number.isNaN(c.Age));
+        // Map to customer inputs alongside original IDs (if present)
+        const customersWithIds = parsedRows.map((row) => ({
+          sourceId: pick(row, ['id', 'ID', 'Id', 'CustomerId', 'CustomerID'], ''),
+          payload: toCustomer(row),
+        })).filter(({ payload }) => !Number.isNaN(payload.CreditScore) && !Number.isNaN(payload.Age));
 
         // Do not render all rows in the UI; process in chunks directly
         let allPreds = [];
-        for (let i = 0; i < customersData.length; i += CHUNK_SIZE) {
-          const chunk = customersData.slice(i, i + CHUNK_SIZE);
+        for (let i = 0; i < customersWithIds.length; i += CHUNK_SIZE) {
+          const chunk = customersWithIds.slice(i, i + CHUNK_SIZE);
           try {
-            const result = await apiService.predictBatch(chunk);
-            allPreds = allPreds.concat(result.predictions || []);
-            onShowSnackbar(`Processed ${Math.min(i + CHUNK_SIZE, customersData.length)} / ${customersData.length}`, 'info');
+            const result = await apiService.predictBatch(chunk.map(c => c.payload));
+            const preds = (result.predictions || []).map((p, idx) => ({
+              ...p,
+              customer_id: chunk[idx]?.sourceId || p.customer_id,
+            }));
+            allPreds = allPreds.concat(preds);
+            onShowSnackbar(`Processed ${Math.min(i + CHUNK_SIZE, customersWithIds.length)} / ${customersWithIds.length}`, 'info');
           } catch (err) {
-            onShowSnackbar(`Batch error at rows ${i+1}-${Math.min(i+CHUNK_SIZE, customersData.length)}: ${err.message}`, 'error');
+            onShowSnackbar(`Batch error at rows ${i+1}-${Math.min(i+CHUNK_SIZE, customersWithIds.length)}: ${err.message}`, 'error');
             break;
           }
         }
