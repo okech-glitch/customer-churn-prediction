@@ -1,0 +1,25 @@
+{
+  "feature_columns": [
+    "CustomerId",
+    "CreditScore",
+    "Geography",
+    "Gender",
+    "Age",
+    "Tenure",
+    "Balance",
+    "NumOfProducts",
+    "HasCrCard",
+    "IsActiveMember",
+    "EstimatedSalary"
+  ],
+  "model_performance": {
+    "logistic_regression": {
+      "auc_score": 0.8667151790195319
+    },
+    "random_forest": {
+      "auc_score": 0.9198014389856191
+    }
+  },
+  "ensemble_auc": 0.9149227806803341,
+  "training_date": "2025-09-08T11:11:10.270772"
+}
