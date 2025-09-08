@@ -106,28 +106,76 @@ const BatchPrediction = ({ onShowSnackbar }) => {
     const file = event.target.files[0];
     if (!file) return;
 
+    const CHUNK_SIZE = 500; // avoid freezing the UI and backend timeouts
+
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        setLoading(true);
+        setPredictions([]);
         const csv = e.target.result;
-        const lines = csv.split('\n');
+        const lines = csv.split(/\r?\n/);
+        if (lines.length < 2) throw new Error('CSV has no data');
+
         const headers = lines[0].split(',').map(h => h.trim());
-        
-        const newCustomers = lines.slice(1)
-          .filter(line => line.trim())
-          .map((line, index) => {
-            const values = line.split(',').map(v => v.trim());
-            const customer = { id: Date.now() + index };
-            headers.forEach((header, i) => {
-              customer[header] = values[i] || '';
-            });
-            return customer;
+
+        // Helper to pick a field, trying several possible header names
+        const pick = (rowObj, names, fallback='') => {
+          for (const n of names) {
+            if (rowObj[n] !== undefined && rowObj[n] !== '') return rowObj[n];
+          }
+          return fallback;
+        };
+
+        // Convert a CSV line into our expected customer input
+        const toCustomer = (rowObj) => ({
+          CreditScore: parseInt(pick(rowObj, ['CreditScore', 'credit_score']), 10),
+          Geography: String(pick(rowObj, ['Geography', 'geography'])),
+          Gender: String(pick(rowObj, ['Gender', 'gender'])),
+          Age: parseInt(pick(rowObj, ['Age', 'age']), 10),
+          Tenure: parseInt(pick(rowObj, ['Tenure', 'tenure']), 10),
+          Balance: parseFloat(pick(rowObj, ['Balance', 'balance', 'AccountBalance'], 0)) || 0,
+          NumOfProducts: parseInt(pick(rowObj, ['NumOfProducts', 'num_products']), 10),
+          HasCrCard: parseInt(pick(rowObj, ['HasCrCard', 'has_cr_card', 'HasCreditCard'], 0), 10) || 0,
+          IsActiveMember: parseInt(pick(rowObj, ['IsActiveMember', 'is_active_member'], 0), 10) || 0,
+          EstimatedSalary: parseFloat(pick(rowObj, ['EstimatedSalary', 'estimated_salary'], 0)) || 0,
+        });
+
+        // Build array of row objects keyed by header
+        const parsedRows = lines.slice(1)
+          .filter(line => line && line.trim())
+          .map((line) => {
+            const values = line.split(',');
+            const obj = {};
+            headers.forEach((h, i) => { obj[h.trim()] = (values[i] ?? '').trim(); });
+            return obj;
           });
 
-        setCustomers([...customers, ...newCustomers]);
-        onShowSnackbar(`Imported ${newCustomers.length} customers from CSV`, 'success');
+        // Map to customer inputs, ignoring rows missing critical fields
+        const customersData = parsedRows.map(toCustomer).filter(c => !Number.isNaN(c.CreditScore) && !Number.isNaN(c.Age));
+
+        // Do not render all rows in the UI; process in chunks directly
+        let allPreds = [];
+        for (let i = 0; i < customersData.length; i += CHUNK_SIZE) {
+          const chunk = customersData.slice(i, i + CHUNK_SIZE);
+          try {
+            const result = await apiService.predictBatch(chunk);
+            allPreds = allPreds.concat(result.predictions || []);
+            onShowSnackbar(`Processed ${Math.min(i + CHUNK_SIZE, customersData.length)} / ${customersData.length}`, 'info');
+          } catch (err) {
+            onShowSnackbar(`Batch error at rows ${i+1}-${Math.min(i+CHUNK_SIZE, customersData.length)}: ${err.message}`, 'error');
+            break;
+          }
+        }
+
+        setPredictions(allPreds);
+        setCustomers([]); // keep UI light
+        onShowSnackbar(`Batch prediction complete for ${allPreds.length} rows`, 'success');
       } catch (err) {
-        onShowSnackbar('Error parsing CSV file', 'error');
+        console.error(err);
+        onShowSnackbar(`Error parsing or processing CSV: ${err.message}`, 'error');
+      } finally {
+        setLoading(false);
       }
     };
     reader.readAsText(file);
@@ -448,3 +496,5 @@ const BatchPrediction = ({ onShowSnackbar }) => {
 };
 
 export default BatchPrediction;
+
+
