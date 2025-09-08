@@ -11,9 +11,12 @@ from sklearn.preprocessing import LabelEncoder
 app = FastAPI(title="Customer Churn Prediction API", version="1.0.0")
 
 # CORS middleware for frontend communication
+# CORS (allow multiple origins via env CORS_ORIGINS="http://localhost:3000,https://*.vercel.app")
+cors_env = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+allowed_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React dev server
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -473,4 +476,5 @@ async def get_feature_importance():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
