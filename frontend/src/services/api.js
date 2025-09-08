@@ -103,6 +103,21 @@ export const apiService = {
       throw new Error('Failed to fetch feature importance');
     }
   },
+
+  // Churn aggregate stats
+  getStats: async () => {
+    try {
+      const response = await api.get('/stats');
+      return response.data;
+    } catch (error) {
+      if (error.response?.data?.detail) {
+        throw new Error(error.response.data.detail);
+      }
+      throw new Error('Failed to fetch churn statistics');
+    }
+  },
 };
 
 export default api;
+
+

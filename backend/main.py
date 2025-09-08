@@ -53,6 +53,7 @@ model_info = {}
 label_encoders = {}
 scaler = None
 feature_columns: list[str] = []
+train_df: pd.DataFrame | None = None
 
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     """Preprocess incoming data to match the training-time feature set and order."""
@@ -200,10 +201,26 @@ def load_models():
             model_info = meta_json.get("model_performance", {})
             feature_columns = meta_json.get("feature_columns", feature_columns)
 
+def load_training_data():
+    """Load training data from ../data/train.csv if present for aggregate stats."""
+    global train_df
+    data_path = os.path.join(os.path.dirname(__file__), "..", "data", "train.csv")
+    try:
+        if os.path.exists(data_path):
+            train_df = pd.read_csv(data_path)
+            # Normalize expected columns if present
+            # Ensure Geography/Gender as strings for grouping
+            for col in ["Geography", "Gender"]:
+                if col in train_df.columns:
+                    train_df[col] = train_df[col].astype(str)
+    except Exception as e:
+        print(f"Warning: could not load training data for stats: {e}")
+
 # Load models on startup
 @app.on_event("startup")
 async def startup_event():
     load_models()
+    load_training_data()
 
 @app.get("/")
 async def root():
@@ -220,6 +237,83 @@ async def get_models():
         raise HTTPException(status_code=404, detail="No models loaded")
     
     return model_info
+
+@app.get("/stats", response_model=Dict[str, Any])
+async def get_stats():
+    """Return aggregate churn statistics from training data (if available)."""
+    if train_df is None:
+        raise HTTPException(status_code=404, detail="Training data not available on server")
+
+    df = train_df.copy()
+    if "Exited" not in df.columns:
+        raise HTTPException(status_code=400, detail="Training data missing 'Exited' column")
+
+    total = int(len(df))
+    churned = int(df["Exited"].sum())
+    active = int(total - churned)
+    overall_rate = round(float(churned / total * 100), 2) if total > 0 else 0.0
+
+    # Per-country churn
+    geo_stats = []
+    if "Geography" in df.columns:
+        geo_group = df.groupby("Geography")["Exited"].agg(["count", "sum"]).reset_index()
+        for _, row in geo_group.iterrows():
+            stayed = int(row["count"] - row["sum"])  # count - churned
+            churn_rate = round(float(row["sum"]) / float(row["count"]) * 100, 2) if row["count"] else 0.0
+            geo_stats.append({
+                "name": str(row["Geography"]),
+                "churned": int(row["sum"]),
+                "stayed": stayed,
+                "churnRate": churn_rate,
+            })
+
+    # Age buckets
+    age_stats = []
+    if "Age" in df.columns:
+        bins = [0, 25, 35, 45, 55, 65, 200]
+        labels = ["18-25", "26-35", "36-45", "46-55", "56-65", "65+"]
+        df["AgeBucket"] = pd.cut(df["Age"], bins=bins, labels=labels, right=True, include_lowest=True)
+        age_group = df.groupby("AgeBucket")["Exited"].agg(["count", "sum"]).reset_index()
+        for _, row in age_group.iterrows():
+            bucket = str(row["AgeBucket"]) if pd.notna(row["AgeBucket"]) else "Unknown"
+            stayed = int(row["count"] - row["sum"]) if pd.notna(row["count"]) else 0
+            churn_rate = round(float(row["sum"]) / float(row["count"]) * 100, 2) if row["count"] else 0.0
+            age_stats.append({
+                "age": bucket,
+                "churned": int(row["sum"]) if pd.notna(row["sum"]) else 0,
+                "stayed": stayed,
+                "churnRate": churn_rate,
+            })
+
+    # Balance buckets
+    balance_stats = []
+    if "Balance" in df.columns:
+        bal_bins = [-0.01, 0.01, 10_000, 50_000, 100_000, 1_000_000]
+        bal_labels = ["0", "1-10k", "10k-50k", "50k-100k", "100k+"]
+        df["BalanceBucket"] = pd.cut(df["Balance"], bins=bal_bins, labels=bal_labels, right=True)
+        bal_group = df.groupby("BalanceBucket")["Exited"].agg(["count", "sum"]).reset_index()
+        for _, row in bal_group.iterrows():
+            name = str(row["BalanceBucket"]) if pd.notna(row["BalanceBucket"]) else "Unknown"
+            stayed = int(row["count"] - row["sum"]) if pd.notna(row["count"]) else 0
+            churn_rate = round(float(row["sum"]) / float(row["count"]) * 100, 2) if row["count"] else 0.0
+            balance_stats.append({
+                "balance": name,
+                "churned": int(row["sum"]) if pd.notna(row["sum"]) else 0,
+                "stayed": stayed,
+                "churnRate": churn_rate,
+            })
+
+    return {
+        "totals": {
+            "overallChurnRate": overall_rate,
+            "totalCustomers": total,
+            "churnedCustomers": churned,
+            "activeCustomers": active,
+        },
+        "churnByGeography": geo_stats,
+        "churnByAge": age_stats,
+        "churnByBalance": balance_stats,
+    }
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict_single(customer: CustomerData):

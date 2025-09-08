@@ -35,28 +35,38 @@ import { apiService } from '../services/api';
 
 const DataVisualization = ({ onShowSnackbar }) => {
   const [featureImportance, setFeatureImportance] = useState(null);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedChart, setSelectedChart] = useState('feature_importance');
 
   useEffect(() => {
-    fetchFeatureImportance();
+    Promise.all([fetchFeatureImportance(), fetchStats()])
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const fetchFeatureImportance = async () => {
-    setLoading(true);
     try {
       const data = await apiService.getFeatureImportance();
       setFeatureImportance(data);
     } catch (err) {
       setError(err.message);
       onShowSnackbar(`Failed to load visualization data: ${err.message}`, 'error');
-    } finally {
-      setLoading(false);
     }
   };
 
-  // Sample data for demonstration (in real app, this would come from API)
+  const fetchStats = async () => {
+    try {
+      const s = await apiService.getStats();
+      setStats(s);
+    } catch (err) {
+      // If stats endpoint not available, keep using sample
+      onShowSnackbar(`Stats endpoint error: ${err.message}`, 'warning');
+    }
+  };
+
+  // Fallback demo data
   const sampleData = {
     churnByGeography: [
       { name: 'France', churned: 810, stayed: 3190, churnRate: 20.25 },
@@ -122,7 +132,7 @@ const DataVisualization = ({ onShowSnackbar }) => {
 
   const renderChurnByGeography = () => (
     <ResponsiveContainer width="100%" height={400}>
-      <BarChart data={sampleData.churnByGeography}>
+      <BarChart data={stats?.churnByGeography || sampleData.churnByGeography}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="name" />
         <YAxis />
@@ -136,7 +146,7 @@ const DataVisualization = ({ onShowSnackbar }) => {
 
   const renderChurnByAge = () => (
     <ResponsiveContainer width="100%" height={400}>
-      <BarChart data={sampleData.churnByAge}>
+      <BarChart data={stats?.churnByAge || sampleData.churnByAge}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="age" />
         <YAxis />
@@ -151,7 +161,7 @@ const DataVisualization = ({ onShowSnackbar }) => {
     <ResponsiveContainer width="100%" height={400}>
       <PieChart>
         <Pie
-          data={sampleData.churnByBalance}
+          data={stats?.churnByBalance || sampleData.churnByBalance}
           cx="50%"
           cy="50%"
           labelLine={false}
@@ -160,7 +170,7 @@ const DataVisualization = ({ onShowSnackbar }) => {
           fill="#8884d8"
           dataKey="churnRate"
         >
-          {sampleData.churnByBalance.map((entry, index) => (
+          {(stats?.churnByBalance || sampleData.churnByBalance).map((entry, index) => (
             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
           ))}
         </Pie>
@@ -267,19 +277,19 @@ const DataVisualization = ({ onShowSnackbar }) => {
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="body1">Overall Churn Rate</Typography>
-                <Chip label="20.37%" color="error" />
+                <Chip label={`${stats?.totals?.overallChurnRate ?? 20.37}%`} color="error" />
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="body1">Total Customers</Typography>
-                <Chip label="10,000" color="primary" />
+                <Chip label={(stats?.totals?.totalCustomers ?? 10000).toLocaleString()} color="primary" />
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="body1">Churned Customers</Typography>
-                <Chip label="2,037" color="error" />
+                <Chip label={(stats?.totals?.churnedCustomers ?? 2037).toLocaleString()} color="error" />
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="body1">Active Customers</Typography>
-                <Chip label="7,963" color="success" />
+                <Chip label={(stats?.totals?.activeCustomers ?? 7963).toLocaleString()} color="success" />
               </Box>
             </Box>
           </CardContent>
@@ -331,3 +341,5 @@ const DataVisualization = ({ onShowSnackbar }) => {
 };
 
 export default DataVisualization;
+
+
